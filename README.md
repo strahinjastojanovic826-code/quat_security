@@ -70,6 +70,8 @@ fn main() {
 
 ---
 
+```
+
 ## 🛠️ Quick Start
 
 ### 1. Execute Embedded Test Suite
