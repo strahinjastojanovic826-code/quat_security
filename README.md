@@ -37,11 +37,13 @@ quat_security/
 
 ---
 
-💻 Usage & Integration Example
-Rust Integration (main.rs)
+## 💻 Usage & Integration Example
+
+### Rust Integration (`main.rs`)
 
 Add Quad-Guard as a dependency or use it as an internal library module:
 
+```rust
 use quat_security::{QuadGuard, QuadState};
 
 fn main() {
