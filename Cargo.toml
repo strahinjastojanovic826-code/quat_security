@@ -1,0 +1,16 @@
+[package]
+name = "quat_security"
+version = "0.1.0"
+edition = "2021"
+authors = ["Strale <strahinjastojanovic826@gmail.com>"]
+description = "A zero-dependency, lightweight behavioral security engine and anomaly detector in pure Rust using a 4-state biological model."
+readme = "README.md"
+repository = "https://github.com/tvoj-username/quad-guard"
+license = "AGPL-3.0-or-later"
+keywords = ["security", "procfs", "zero-dependency", "system-monitoring", "defense"]
+categories = ["command-line-utilities", "os"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
