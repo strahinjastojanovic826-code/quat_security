@@ -1,3 +1,6 @@
+!!!NOTE!!!
+For a newer version of the library, visit crates.io
+
 # 🛡️ Quad_security Security Core
 
 > **A high-performance, zero-dependency Rust telemetry engine for real-time threat evaluation & system monitoring.**
