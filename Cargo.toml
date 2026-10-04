@@ -3,11 +3,11 @@ name = "quat_security"
 version = "1.0.0"
 edition = "2021"
 authors = ["Strale <strahinjastojanovic826@gmail.com>"]
-description = "A zero-dependency, lightweight behavioral security engine and anomaly detector in pure Rust using a 4-state biological model."
+description = "Lightweight behavioral security engine and anomaly detector in pure Rust using a 4-state biological model."
 readme = "README.md"
 repository = "https://github.com/strahinjastojanovic826-code/quat_security/blob/master/Cargo.toml"
 license = "AGPL-3.0-or-later"
-keywords = ["security", "procfs", "zero-dependency", "system-monitoring", "defense"]
+keywords = ["security", "procfs", "system-monitoring", "defense"]
 categories = ["command-line-utilities", "os"]
 
 [lib]
