@@ -34,7 +34,7 @@
 
 - **🛡️ FFI Panic Safety & Unwind Protection:** Robust FFI boundary protection using `std::panic::catch_unwind` and `AssertUnwindSafe` to prevent Rust panics from unwinding across foreign language boundaries[cite: 2].
 
-- **🔔:** Support for registering C-compatible callback functions to instantly notify external code in real-time when a security state change occurs[cite: 6, 7].
+- **🔔 Asynchronous State Calllbacks:** Support for registering C-compatible callback functions to instantly notify external code in real-time when a security state change occurs[cite: 6, 7].
 
 ---
 
@@ -286,7 +286,7 @@ namespace SecurityIntegration
         }
     }
 }
-```
+``` 
 
 ---
 
