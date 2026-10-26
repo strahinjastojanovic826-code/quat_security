@@ -1,6 +1,3 @@
-!!!NOTE!!!
-For a newer version of the library, visit crates.io
-
 # 🛡️ Quad_security Security Core
 
 > **A high-performance, zero-dependency Rust telemetry engine for real-time threat evaluation & system monitoring.**
@@ -37,7 +34,7 @@ For a newer version of the library, visit crates.io
 
 - **🛡️ FFI Panic Safety & Unwind Protection:** Robust FFI boundary protection using `std::panic::catch_unwind` and `AssertUnwindSafe` to prevent Rust panics from unwinding across foreign language boundaries[cite: 2].
 
-- **🔔 Asynchronous State Callbacks:** Support for registering C-compatible callback functions to instantly notify external code in real-time when a security state change occurs[cite: 6, 7].
+- **🔔:** Support for registering C-compatible callback functions to instantly notify external code in real-time when a security state change occurs[cite: 6, 7].
 
 ---
 
