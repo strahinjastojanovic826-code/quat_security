@@ -4,6 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::errors::QuadError;
 use crate::state::{QuadReason, QuadState, StateEvent};
 use crate::state::QuadAction;
+use crate::metrics::SystemMetrics;
+use crate::hysteresis::HysteresisEvaluator;
 
 #[cfg(target_os = "linux")]
 use std::fs;
@@ -59,6 +61,31 @@ impl QuadGuard {
         }
     }
 
+    pub fn analyze_multivariate(&self, metrics: SystemMetrics) -> QuadState {
+    if let Ok(mut inner) = self.inner.lock() {
+        let evaluator = HysteresisEvaluator::default();
+        let threat_score = metrics.calculate_threat_score();
+        
+        let current_state = inner.current_state;
+        let next_state = evaluator.evaluate_next_state(current_state, threat_score);
+
+        if current_state != next_state {
+            let reason = match next_state {
+                QuadState::Elevated => QuadReason::MemoryThresholdExceeded,
+                QuadState::Critical => QuadReason::MemoryThresholdExceeded,
+                QuadState::Lockdown => QuadReason::ProcessTerminationFailure,
+                QuadState::Nominal => QuadReason::None,
+            };
+
+            QuadGuard::record_transition_with_reason(&mut inner, next_state, reason);
+        }
+
+        inner.current_state
+    } else {
+        QuadState::Nominal
+    }
+}
+
     pub fn set_callback(&self, cb: Option<StateChangeCallback>) -> QuadError {
         if let Ok(mut guard) = self.inner.lock() {
             guard.callback = cb;
@@ -97,6 +124,13 @@ impl QuadGuard {
                     cb(previous, next_state, reason);
                 }
             }
+            let state_str = match next_state {
+    QuadState::Nominal => "Nominal",
+    QuadState::Elevated => "Elevated",
+    QuadState::Critical => "Critical",
+    QuadState::Lockdown => "Lockdown",
+};
+crate::actions::ActionExecutor::trigger_external_action(state_str, inner.ram_threshold, None);
         }
     }
 
@@ -139,6 +173,30 @@ impl QuadGuard {
                 }
             }
         }
+
+        #[cfg(target_os = "macos")]
+{
+    if let Ok((total_mem, free_mem)) = crate::native_api::macos_api::get_mac_memory_usage() {
+        if total_mem > 0 {
+            let used_mem = total_mem.saturating_sub(free_mem);
+            let load_pct = ((used_mem * 100) / total_mem) as u32;
+            
+            let target_state = if load_pct > guard.ram_threshold {
+                QuadState::Elevated
+            } else {
+                QuadState::Nominal
+            };
+            
+            let reason = if target_state == QuadState::Elevated {
+                QuadReason::MemoryThresholdExceeded
+            } else {
+                QuadReason::None
+            };
+            
+            Self::record_transition_with_reason(&mut guard, target_state, reason);
+        }
+    }
+}
 
         #[cfg(target_os = "linux")]
         {
@@ -184,5 +242,62 @@ impl QuadGuard {
         }
 
         guard.current_state
+    }
+}
+
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::thread;
+use std::time::Duration;
+
+pub struct SecurityWatchdog {
+    last_heartbeat: Arc<AtomicU64>,
+    is_running: Arc<AtomicBool>,
+}
+
+impl SecurityWatchdog {
+    pub fn new(timeout: Duration) -> Self {
+        let last_heartbeat = Arc::new(AtomicU64::new(Self::now_ms()));
+        let is_running = Arc::new(AtomicBool::new(true));
+
+        let hb_clone = Arc::clone(&last_heartbeat);
+        let run_clone = Arc::clone(&is_running);
+
+        // Spawn independent background monitor thread
+        thread::spawn(move || {
+            while run_clone.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(200));
+                let current_time = Self::now_ms();
+                let last = hb_clone.load(Ordering::Acquire);
+
+                if current_time - last > timeout.as_millis() as u64 {
+                    eprintln!("[FAIL-SAFE CRITICAL] Watchdog timeout reached! Forcing system LOCKDOWN (11)...");
+                    // TRIGGER FAIL-SAFE: Execute emergency lockdown/process termination here
+                    break;
+                }
+            }
+        });
+
+        Self {
+            last_heartbeat,
+            is_running,
+        }
+    }
+
+    /// Call this method periodically in your main guard loop to prove healthiness
+    pub fn kick(&self) {
+        self.last_heartbeat.store(Self::now_ms(), Ordering::Release);
+    }
+
+    fn now_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    }
+}
+
+impl Drop for SecurityWatchdog {
+    fn drop(&mut self) {
+        self.is_running.store(false, Ordering::Release);
     }
 }

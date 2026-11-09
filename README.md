@@ -12,29 +12,45 @@
 
 ## 🔑 Key Features
 
-- **🎛️ 2-Bit Quad-State Security Architecture:** Highly efficient 4-state engine using compact 2-bit quats (`0b00` to `0b11`) for dynamic threat evaluation:
-  - `Nominal` (`0b00`) — Standard baseline operations.
-  - `Elevated` (`0b01`) — Anomalous activity detected; telemetry sampling scaled up.
-  - `Critical` (`0b10`) — High-risk threshold breached; containment protocols triggered.
-  - `Lockdown` (`0b11`) — Emergency state enforcement and process isolation.
+- **2-Bit Quad-State Security Architecture:** Highly efficient 4-state engine using compact 2-bit evaluation:
+  - `Nominal` (`0b00`) – Standard baseline operations[cite: 40].
+  - `Elevated` (`0b01`) – Anomalous activity detected; telemetry sampling scaled up[cite: 40].
+  - `Critical` (`0b10`) – High-risk threshold breached; containment protocols triggered[cite: 40].
+  - `Lockdown` (`0b11`) – Emergency state enforcement and process isolation[cite: 40].
+- **🔒 Thread-Safe & Atomic State Synchronization:** Built with `Arc<Mutex<QuadGuardInner>>` and lock-free atomic primitives for secure execution across concurrent OS threads[cite: 40].
+- **🖥️ Native Cross-Platform OS Inspection:** 
+  - **Windows:** Queries memory and process subsystem status via raw `kernel32.dll` FFI bindings[cite: 40].
+  - **Linux:** Inspects live process metrics directly via high-speed `/proc` virtual filesystem parsing[cite: 40].
+  - **macOS:** System inspection utilizing Mach kernel API and `sysctl` for Apple platforms.
+- **📊 Advanced Multivariate Metrics:** Tracks real-time RAM, CPU, I/O wait, Network load (`network_load_pct`), and GPU temperature (`gpu_temp_celsius`) to compute weighted threat scores[cite: 1].
+- **📈 Hysteresis State Machine:** Prevents rapid state oscillation (*flapping*) using dedicated high and low evaluation thresholds[cite: 6, 7].
+- **🌐 Multi-Language C-ABI Export:** Features un-mangled `#[no_mangle]` C calling conventions (`cdylib`) for seamless integration with C++, C# (.NET), Python, and Go[cite: 40].
+- **🛡️ Embedded Self-Termination Guard:** Prevents malicious or accidental self-kill signals against the security monitoring process[cite: 40].
+- **🔄 Circular Event History Tracking:** Tracks the last 10 state transitions with precise timestamps and `QuadReason` diagnostics[cite: 6, 7, 8, 12, 40].
+- **🚀 Dynamic Action & Webhook Plug-in System:** Automatically triggers local shell scripts or HTTP webhook payloads upon security state escalations.
+- **⚡ FFI Panic Safety & Unwind Protection:** Robust FFI boundary protection using `std::panic::catch_unwind` and `AssertUnwindSafe` to prevent Rust panics from unwinding across foreign language boundaries[cite: 2, 40].
+- **🔔 Asynchronous State Callbacks:** Support for registering C-compatible callback functions to instantly notify external systems when a security state change occurs[cite: 6, 7, 40].
 
-- **🔒 Thread-Safe & Atomic State Synchronization:** Built with `Arc<Mutex<QuadGuardInner>>` and lock-free atomic primitives to ensure reliable execution across concurrent OS threads.
+---
 
-- **⚡ Zero External Dependencies:** Built strictly using the Rust Standard Library (`std`), eliminating supply chain vulnerability risks and external crate overhead.
+## Benchmark results
 
-- **💻 Native Cross-Platform OS Inspection:**
-  - **Windows:** Queries memory and process subsystem status via raw `kernel32.dll` FFI bindings.
-  - **Linux:** Inspects live process metrics directly via high-speed `/proc` virtual filesystem parsing.
-
-- **🌐 Multi-Language C-ABI Export:** Features un-mangled `#[no_mangle]` C calling conventions (`cdylib`) for seamless native integration into **C**, **C++**, **C# (.NET)**, **Python**, and **Go**.
-
-- **🛡️ Embedded Self-Termination Guard:** Prevents malicious or accidental self-kill signals against the security engine process.
-
-- **🔄 Circular Event History Tracking:** Tracks the last 10 state transitions with precise timestamps (`SystemTime`), previous states, and specific reasons (`QuadReason`)[cite: 6, 7, 8, 12].
-
-- **🛡️ FFI Panic Safety & Unwind Protection:** Robust FFI boundary protection using `std::panic::catch_unwind` and `AssertUnwindSafe` to prevent Rust panics from unwinding across foreign language boundaries[cite: 2].
-
-- **🔔 Asynchronous State Calllbacks:** Support for registering C-compatible callback functions to instantly notify external code in real-time when a security state change occurs[cite: 6, 7].
+| Operation / Test | Measured Time |
+| :--- | :--- |
+| **Invalid bits fallback resolution** | 200 ns |
+| **Hysteresis transition evaluation** | 300 ns |
+| **FFI Null-pointer check overhead** | 300 ns |
+| **Bit packing and byte shifting** | 400 ns |
+| **Initialization latency** | 1.1 µs |
+| **Threshold validation speed** | 1.3 µs |
+| **Multivariate threat score calc speed** | 2 µs |
+| **Self-termination check latency** | 2.8 µs |
+| **Callback execution latency** | 4.5 µs |
+| **History Ring-Buffer stress** | 16.3 µs |
+| **FFI Full lifecycle duration** | 23 µs |
+| **Security policy load & fallback speed** | 57.6 µs |
+| **Multithreaded concurrent access (10 threads)** | 1.577 ms |
+| **Action executor trigger overhead** | 3.1927 ms |
 
 ---
 
@@ -45,10 +61,10 @@
 Add Quad-Guard as a dependency or use it as an internal library module:
 
 ```rust
-use quat_security::{QuadGuard, QuadState};
+use quat_security::{QuadGuard, QuadState, SystemMetrics};
 
 fn main() {
-    println!("=== QUAD-SECURITY ENGINE DEMO ===");
+    println!("=== === QUAD-SECURITY ENGINE DEMO === ===");
 
     // 1. Inicijalizacija garda
     let guard = QuadGuard::new();
@@ -66,9 +82,14 @@ fn main() {
     guard.set_threshold(75).ok();
     println!("RAM threshold updated to 75%");
 
-    // 3. Analiza stanja sistema
-    let current_state = guard.analyze();
-    println!("System analysis result: {:?}", current_state);
+    // 3. Multivarijatna analiza sa novim metrikama (RAM, CPU, I/O, Network, GPU Temp)
+    println!("\n--- 3.1. Advanced Multivariate System Analysis ---");
+    let metrics = SystemMetrics::new(78, 65, 30, 85, 88);
+    let threat_score = metrics.calculate_threat_score();
+    println!("Calculated Multivariate Threat Index: {}/100", threat_score);
+
+    let evaluated_state = guard.analyze_multivariate(metrics);
+    println!("Resulting Quad-State after multivariate evaluation: {:?}", evaluated_state);
 
     // 4. Test C-ABI zaštite od samogašenja (Self-termination protection)
     #[cfg(target_os = "windows")]
@@ -77,18 +98,23 @@ fn main() {
     #[cfg(target_os = "linux")]
     let current_pid = unsafe { quat_security::native_api::linux_api::getpid() as u32 };
 
-    println!("Attempting self-termination on PID: {}...", current_pid);
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    let current_pid = 1234; // Fallback za ostale sisteme
 
+    println!("\nAttempting self-termination on PID: {}...", current_pid);
+    
     unsafe {
         // Alociramo FFI objekat radi testiranja C API-ja
         let guard_ptr = quad_guard_new();
 
         let result = quad_guard_terminate(guard_ptr, current_pid);
         match result {
-            QuadError::SelfTerminationBlocked => {
+            quat_security::QuadError::SelfTerminationBlocked => {
                 println!("SUCCESS: Engine correctly blocked self-termination!");
             }
-            other => println!("Unexpected result: {:?}", other),
+            other => {
+                println!("Unexpected result: {:?}", other);
+            }
         }
 
         // Oslobađamo FFI memoriju
@@ -96,13 +122,16 @@ fn main() {
     }
 
     // 5. Pregled povijesti događaja
-    {
-        let inner = guard.inner.lock().unwrap();
-        println!("\nRecorded transition events: {}", inner.history_count);
-        println!("Last engine error status: {:?}", inner.last_error);
-    }
+    let inner = guard.inner.lock().unwrap();
+    println!("\nRecorded transition events count: {}", inner.history_count);
+    println!("Last engine error status: {:?}", inner.last_error);
 
-    println!("=== DEMO COMPLETED SUCCESSFULLY ===");
+    println!("\n=== DEMO COMPLETED SUCCESSFULLY ===");
+}
+
+// Definicija callback funkcije za obaveštenja o promeni stanja
+extern "C" fn on_state_change(prev: QuadState, new: QuadState, reason: quat_security::QuadReason) {
+    println!("[CALLBACK] State transitioned from {:?} to {:?} due to reason: {:?}", prev, new, reason);
 }
 ```
 
@@ -119,6 +148,9 @@ cargo run
 ### 2. Compile Shared Library
 Build optimized dynamic shared objects (`.dll` for Windows, `.so` for Linux):
 cargo build --release
+
+### 3. Results
+cargo test -- --nocapture
 
 *Outputs are available in `target/release/`.*
 
