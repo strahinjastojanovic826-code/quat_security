@@ -6,10 +6,13 @@ use crate::state::{QuadReason, QuadState, StateEvent};
 use crate::state::QuadAction;
 use crate::metrics::SystemMetrics;
 use crate::hysteresis::HysteresisEvaluator;
+use crate::policy::SecurityPolicy;
 
 #[cfg(target_os = "linux")]
 use std::fs;
 
+// SAFETY: Invoked across the C-ABI boundary; caller must ensure the callback pointer
+// is valid for the entire registration lifetime and does not unwind across FFI.
 pub type StateChangeCallback = unsafe extern "C" fn(QuadState, QuadState, QuadReason);
 
 pub struct QuadGuardInner {
@@ -63,7 +66,15 @@ impl QuadGuard {
 
     pub fn analyze_multivariate(&self, metrics: SystemMetrics) -> QuadState {
     if let Ok(mut inner) = self.inner.lock() {
-        let evaluator = HysteresisEvaluator::default();
+        let policy = SecurityPolicy {
+        ram_threshold_elevated: inner.ram_threshold,
+        ram_threshold_critical: inner.ram_threshold.saturating_add(10).min(100),
+        cpu_threshold_critical: inner.cpu_threshold,
+        auto_lockdown_on_breach: true,
+
+       };
+
+        let evaluator = HysteresisEvaluator::from_policy(&policy);
         let threat_score = metrics.calculate_threat_score();
         
         let current_state = inner.current_state;
@@ -71,14 +82,16 @@ impl QuadGuard {
 
         if current_state != next_state {
             let reason = match next_state {
-                QuadState::Elevated => QuadReason::MemoryThresholdExceeded,
-                QuadState::Critical => QuadReason::MemoryThresholdExceeded,
-                QuadState::Lockdown => QuadReason::ProcessTerminationFailure,
+                QuadState::Elevated => QuadReason::ResourceThreshold,
+                QuadState::Critical => QuadReason::ThreatEscalation,
+                QuadState::Lockdown => QuadReason::LockdownPolicy,
                 QuadState::Nominal => QuadReason::None,
             };
 
             QuadGuard::record_transition_with_reason(&mut inner, next_state, reason);
         }
+
+       let _evaluator = HysteresisEvaluator::from_policy(&policy);
 
         inner.current_state
     } else {
@@ -94,6 +107,25 @@ impl QuadGuard {
             QuadError::LockError
         }
     }
+
+    fn resolve_transition_reason(
+    next_state: QuadState,
+    ram_pct: u32,
+    cpu_pct: u32,
+) -> QuadReason {
+    match next_state {
+        QuadState::Nominal => QuadReason::None,
+        QuadState::Elevated => {
+            if cpu_pct > ram_pct {
+                QuadReason::ResourceThreshold
+            } else {
+                QuadReason::ResourceThreshold
+            }
+        }
+        QuadState::Critical => QuadReason::ThreatEscalation,
+        QuadState::Lockdown => QuadReason::LockdownPolicy,
+    }
+}
 
     pub fn record_transition_with_reason(
         inner: &mut QuadGuardInner,
@@ -120,6 +152,8 @@ impl QuadGuard {
             inner.current_state = next_state;
 
             if let Some(cb) = inner.callback {
+                // SAFETY: `cb` was validated upon registration via `set_callback` and matches the
+                // `unsafe extern "C"` ABI signature with copyable `QuadState` and `QuadReason` values.
                 unsafe {
                     cb(previous, next_state, reason);
                 }
@@ -155,6 +189,9 @@ crate::actions::ActionExecutor::trigger_external_action(state_str, inner.ram_thr
                 ull_avail_extended_virtual: 0,
             };
 
+            // SAFETY: `status` is a properly initialized `MEMORYSTATUSEX` struct on the stack
+            // with `dw_length` set to `size_of::<MEMORYSTATUSEX>()`, and `&mut status` is valid
+            // and properly aligned for the duration of the Win32 call.
             unsafe {
                 if GlobalMemoryStatusEx(&mut status) != 0 {
                     let target_state = if status.dw_memory_load > guard.ram_threshold {
@@ -164,7 +201,7 @@ crate::actions::ActionExecutor::trigger_external_action(state_str, inner.ram_thr
                     };
 
                     let reason = if target_state == QuadState::Elevated {
-                        QuadReason::MemoryThresholdExceeded
+                        QuadReason::ResourceThreshold
                     } else {
                         QuadReason::None
                     };

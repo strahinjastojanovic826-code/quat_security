@@ -30,27 +30,34 @@
 - **🚀 Dynamic Action & Webhook Plug-in System:** Automatically triggers local shell scripts or HTTP webhook payloads upon security state escalations.
 - **⚡ FFI Panic Safety & Unwind Protection:** Robust FFI boundary protection using `std::panic::catch_unwind` and `AssertUnwindSafe` to prevent Rust panics from unwinding across foreign language boundaries[cite: 2, 40].
 - **🔔 Asynchronous State Callbacks:** Support for registering C-compatible callback functions to instantly notify external systems when a security state change occurs[cite: 6, 7, 40].
+- **Quaternary Byte Packing (`QuadPack4`):** Packs four 2-bit quaternary states into a single `u8` byte (up to 75% state memory reduction) with safe fallback handling for invalid bit patterns.
+- **Policy-Driven Hysteresis & Reason Codes:** Connects `SecurityPolicy` thresholds directly with `HysteresisEvaluator` and standardized `QuadReason` transition variants (`None`, `ResourceThreshold`, `ThreatEscalation`, `LockdownPolicy`).
+- **Safe Action Executor & Policy Guards:** Enforces execution policies and input validation before triggering external actions or webhooks to mitigate shell/command injection risks.
+- **Extended FFI Handle Cloning & Snapshots:** Supports handle cloning (`quad_guard_clone_handle`) and safe C-ABI snapshot reads (`quad_guard_read_snapshot`) alongside standard lifecycle management.
 
 ---
 
 ## Benchmark results
 
-| Operation / Test | Measured Time |
-| :--- | :--- |
-| **Invalid bits fallback resolution** | 200 ns |
-| **Hysteresis transition evaluation** | 300 ns |
-| **FFI Null-pointer check overhead** | 300 ns |
-| **Bit packing and byte shifting** | 400 ns |
-| **Initialization latency** | 1.1 µs |
-| **Threshold validation speed** | 1.3 µs |
-| **Multivariate threat score calc speed** | 2 µs |
-| **Self-termination check latency** | 2.8 µs |
-| **Callback execution latency** | 4.5 µs |
-| **History Ring-Buffer stress** | 16.3 µs |
-| **FFI Full lifecycle duration** | 23 µs |
-| **Security policy load & fallback speed** | 57.6 µs |
-| **Multithreaded concurrent access (10 threads)** | 1.577 ms |
-| **Action executor trigger overhead** | 3.1927 ms |
+| Benchmark / Test Case | Measured Time | Category | Notes / Scope |
+| :--- | :--- | :--- | :--- |
+| **Invalid bits fallback resolution** (`test_invalid_bits_fallback`) | `200ns`[cite: 22] | State / Fallback | Safe fallback resolution for out-of-range/invalid bit patterns[cite: 22] |
+| **FFI Null-pointer check overhead** (`test_ffi_null_pointer_safety`) | `400ns`[cite: 22] | FFI Safety | Null pointer guard validation across C-ABI entry points[cite: 22] |
+| **Hysteresis from_policy evaluation** (`test_hysteresis_from_policy_thresholds`) | `400ns`[cite: 22] | Policy / Hysteresis | Threshold construction and state evaluation from `SecurityPolicy`[cite: 22] |
+| **Bit packing and byte shifting** (`test_quad_bit_packing_and_shifting`) | `400ns`[cite: 22] | Quaternary Logic | 2-bit state extraction and byte-level bit-shifting operations[cite: 22] |
+| **QuadPack4 lane set/get (1 byte)** (`test_quad_pack4_four_lanes_in_one_byte`) | `400ns`[cite: 22] | Memory Optimization | Packing and reading 4 quaternary states inside a single `u8`[cite: 22] |
+| **Hysteresis transition evaluation** (`test_hysteresis_state_transitions`) | `600ns`[cite: 22] | State Machine | Hysteresis state transition checks across threat levels[cite: 22] |
+| **Initialization latency** (`test_quad_guard_initialization`) | `1µs`[cite: 22] | Core Lifecycle | Creating a new `QuadGuard` instance and verifying initial state[cite: 22] |
+| **Callback execution latency** (`test_callback_execution`) | `1.3µs`[cite: 22] | Event / Callback | Invoking registered state-change callback on transition[cite: 22] |
+| **Threshold validation speed** (`test_threshold_boundary_and_validation`) | `1.5µs`[cite: 22] | Guard Config | Validating and clamping threshold boundary values[cite: 22] |
+| **Multivariate threat score calc speed** (`test_extended_metrics_and_threat_score`) | `2.5µs`[cite: 22] | Telemetry / Scoring | Computing multivariate threat score from system metrics[cite: 22] |
+| **Self-termination check latency** (`test_self_termination_guard`) | `3.3µs`[cite: 22] | Process Protection | Checking and blocking self-termination attempts via FFI[cite: 22] |
+| **FFI clone handle & snapshot read** (`test_ffi_clone_handle_and_snapshot`) | `3.6µs`[cite: 22] | FFI / Snapshot | Cloning FFI handle and reading snapshot data[cite: 22] |
+| **History Ring-Buffer stress** (`test_stress_history_overflow`) | `25µs`[cite: 22] | History Buffer | 100 state transitions stressing the bounded history ring-buffer[cite: 22] |
+| **FFI Full lifecycle duration** (`test_ffi_full_lifecycle`) | `35µs`[cite: 22] | FFI Lifecycle | End-to-end `new`, configure, callback, analyze, and `free` cycle[cite: 22] |
+| **Security policy load & fallback speed** (`test_security_policy_defaults_and_fallback`) | `92.9µs`[cite: 22] | Policy I/O | Policy loading attempt (including missing-file fallback to defaults)[cite: 22] |
+| **Multithreaded concurrent access (10 threads)** (`test_multithreaded_concurrent_access`) | `1.281ms`[cite: 22] | Concurrency | Concurrent threshold updates and analysis across 10 threads[cite: 22] |
+| **Action executor trigger overhead** (`test_action_executor_safety`) | `3.5583ms`[cite: 22] | Action Execution | Action executor trigger path and safety policy enforcement[cite: 22] |
 
 ---
 
@@ -137,6 +144,47 @@ extern "C" fn on_state_change(prev: QuadState, new: QuadState, reason: quat_secu
 
 ---
 
+### Quaternary Packing & FFI Handle Cloning Example
+
+```rust
+use quat_security::ffi::{
+    quad_guard_clone_handle, quad_guard_free, quad_guard_new, quad_guard_read_snapshot,
+    QuadCabiSnapshot,
+};
+use quat_security::state::{QuadPack4, QuadState};
+
+fn main() {
+    // 1. Pack 4 subsystem states (2 bits each: 00, 01, 10, 11) into a single byte
+    let mut pack = QuadPack4::new();
+    pack.set(0, QuadState::Nominal);
+    pack.set(1, QuadState::Elevated);
+    pack.set(2, QuadState::Critical);
+    pack.set(3, QuadState::Lockdown);
+
+    assert_eq!(pack.get(2), QuadState::Critical);
+
+    // 2. Clone FFI handle and read snapshot safely
+    unsafe {
+        let primary = quad_guard_new();
+        let cloned = quad_guard_clone_handle(primary);
+
+        let mut snap = QuadCabiSnapshot {
+            current_state_bits: 0,
+            packed_lanes_u8: 0,
+            ram_threshold: 0,
+            cpu_threshold: 0,
+        };
+        let status = quad_guard_read_snapshot(cloned, &mut snap);
+        assert_eq!(status, 0);
+
+        quad_guard_free(cloned);
+        quad_guard_free(primary);
+    }
+}
+```
+
+---
+
 ```
 
 ## 🛠️ Quick Start
@@ -212,6 +260,42 @@ int main(void) {
 ```
 
 ---
+
+### Additional C Example: Handle Cloning & Snapshot
+
+```c
+#include <stdint.h>
+#include <stdio.h>
+#include "quat_security.h"
+
+int run_clone_and_snapshot_demo(void) {
+    QuadGuard* primary = quad_guard_new();
+    if (!primary) {
+        return 1;
+    }
+
+    QuadGuard* cloned = quad_guard_clone_handle(primary);
+    if (!cloned) {
+        quad_guard_free(primary);
+        return 1;
+    }
+
+    QuadCabiSnapshot snap = {0};
+    int status = quad_guard_read_snapshot(cloned, &snap);
+    if (status == 0) {
+        printf("Snapshot state bits: %u, packed lanes: 0x%02X\n",
+               (unsigned)snap.current_state_bits,
+               (unsigned)snap.packed_lanes_u8);
+    }
+
+    quad_guard_free(cloned);
+    quad_guard_free(primary);
+    return 0;
+}
+```
+
+---
+
 
 ### 2. C++ Example
 

@@ -13,6 +13,8 @@ pub mod policy;
 pub mod metrics;
 pub mod hysteresis;
 pub mod actions;
+pub mod ports;
+pub mod whatchdog;
 
 // Re-export za lakše korišćenje u Rust kodu
 pub use errors::QuadError;
@@ -59,7 +61,7 @@ mod tests {
         for i in 0..100 {
             let next = if i % 2 == 0 { QuadState::Elevated } else { QuadState::Nominal };
             let mut inner = guard.inner.lock().unwrap();
-            QuadGuard::record_transition_with_reason(&mut inner, next, QuadReason::MemoryThresholdExceeded);
+            QuadGuard::record_transition_with_reason(&mut inner, next, QuadReason::ResourceThreshold);
         }
 
         let inner = guard.inner.lock().unwrap();
@@ -77,7 +79,7 @@ mod tests {
 
         let start = std::time::Instant::now();
         let mut inner = guard.inner.lock().unwrap();
-        QuadGuard::record_transition_with_reason(&mut inner, QuadState::Elevated, QuadReason::MemoryThresholdExceeded);
+        QuadGuard::record_transition_with_reason(&mut inner, QuadState::Elevated, QuadReason::ResourceThreshold);
         assert!(CALLBACK_TRIGGERED.load(Ordering::SeqCst));
         
         println!("[BENCHMARK] Callback execution latency: {:?}", start.elapsed());
@@ -208,7 +210,7 @@ mod tests {
         assert_eq!(state_overflow, QuadState::Lockdown);
 
         let reason_overflow = QuadReason::from_bits(0xFF);
-        assert_eq!(reason_overflow, QuadReason::ProcessTerminationFailure);
+        assert_eq!(reason_overflow, QuadReason::LockdownPolicy);
 
         println!("[BENCHMARK] Invalid bits fallback resolution: {:?}", start.elapsed());
     }
@@ -265,5 +267,83 @@ mod tests {
         assert_eq!(fallback_policy.ram_threshold_elevated, 75);
 
         println!("[BENCHMARK] Security policy load & fallback speed: {:?}", start.elapsed());
+    }
+
+    #[test]
+    fn test_quad_pack4_four_lanes_in_one_byte() {
+        let start = std::time::Instant::now();
+        let mut pack = crate::state::QuadPack4::new();
+
+        pack.set(0, QuadState::Nominal);   // 0b00
+        pack.set(1, QuadState::Elevated);  // 0b01
+        pack.set(2, QuadState::Critical);  // 0b10
+        pack.set(3, QuadState::Lockdown);  // 0b11
+
+        assert_eq!(pack.get(0), QuadState::Nominal);
+        assert_eq!(pack.get(1), QuadState::Elevated);
+        assert_eq!(pack.get(2), QuadState::Critical);
+        assert_eq!(pack.get(3), QuadState::Lockdown);
+        assert_eq!(std::mem::size_of::<crate::state::QuadPack4>(), 1);
+
+        println!("[BENCHMARK] QuadPack4 lane set/get (1 byte): {:?}", start.elapsed());
+    }
+
+    #[test]
+    fn test_hysteresis_from_policy_thresholds() {
+        let start = std::time::Instant::now();
+        let policy = SecurityPolicy::default();
+        let evaluator = HysteresisEvaluator::from_policy(&policy);
+
+        assert_eq!(evaluator.elevated_high, 75);
+        assert_eq!(evaluator.critical_high, 90);
+        assert_eq!(evaluator.elevated_low, 65);
+        assert_eq!(evaluator.critical_low, 80);
+
+        let next = evaluator.evaluate_next_state(QuadState::Elevated, 60);
+        assert_eq!(next, QuadState::Nominal);
+
+        println!("[BENCHMARK] Hysteresis from_policy evaluation: {:?}", start.elapsed());
+    }
+
+    #[test]
+    fn test_safe_action_executor_disabled_by_default() {
+        let start = std::time::Instant::now();
+        let executor = crate::actions::SafeActionExecutor::new(
+            crate::actions::ActionConfig::default(),
+        );
+
+        assert!(executor.execute_alert(0b11, 95).is_err());
+        assert!(executor
+            .send_json_webhook("https://example.invalid/hook", 0b10, 88)
+            .is_err());
+
+        println!("[BENCHMARK] SafeActionExecutor guard checks: {:?}", start.elapsed());
+    }
+
+    #[test]
+    fn test_ffi_clone_handle_and_snapshot() {
+        let start = std::time::Instant::now();
+        unsafe {
+            let primary = crate::ffi::quad_guard_new();
+            assert!(!primary.is_null());
+
+            let cloned = crate::ffi::quad_guard_clone_handle(primary);
+            assert!(!cloned.is_null());
+
+            let mut snap = crate::ffi::QuadCabiSnapshot {
+                current_state_bits: 0xFF,
+                packed_lanes_u8: 0xFF,
+                ram_threshold: 0,
+                cpu_threshold: 0,
+            };
+            let rc = crate::ffi::quad_guard_read_snapshot(cloned, &mut snap);
+            assert_eq!(rc, 0);
+            assert_eq!(snap.current_state_bits, 0b00);
+
+            crate::ffi::quad_guard_free(cloned);
+            crate::ffi::quad_guard_free(primary);
+        }
+
+        println!("[BENCHMARK] FFI clone handle & snapshot read: {:?}", start.elapsed());
     }
 }

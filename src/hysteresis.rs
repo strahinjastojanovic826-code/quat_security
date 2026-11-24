@@ -1,4 +1,5 @@
 use crate::state::QuadState;
+use crate::policy::SecurityPolicy;
 
 pub struct HysteresisEvaluator {
     // High thresholds for escalating state (00 -> 01 -> 10 -> 11)
@@ -71,6 +72,28 @@ impl HysteresisEvaluator {
                     QuadState::Lockdown // 11 (Maintain)
                 }
             }
+        }
+    }
+    
+    pub fn from_policy(policy: &SecurityPolicy) -> Self {
+        let elevated_high = policy.ram_threshold_elevated.min(100);
+        let critical_high = policy
+            .ram_threshold_critical
+            .max(policy.cpu_threshold_critical)
+            .min(100);
+        let lockdown_high = if policy.auto_lockdown_on_breach {
+            98
+        } else {
+            100
+        };
+
+        Self {
+            elevated_high,
+            critical_high,
+            lockdown_high,
+            elevated_low: elevated_high.saturating_sub(10),
+            critical_low: critical_high.saturating_sub(10),
+            lockdown_low: lockdown_high.saturating_sub(6),
         }
     }
 }
